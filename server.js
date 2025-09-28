@@ -39,6 +39,37 @@ const dbx = new Dropbox({
   refreshToken: process.env.DROPBOX_REFRESH_TOKEN
 });
 
+// Hilfsfunktion → eindeutiger Dateiname
+async function getUniqueFileName(basePath, fileName) {
+  let uniqueName = fileName;
+  let counter = 1;
+
+  while (true) {
+    try {
+      // Prüfen, ob Datei existiert
+      await dbx.filesGetMetadata({ path: `${basePath}/${uniqueName}` });
+      // Datei existiert → neuen Namen generieren
+      const ext = fileName.includes(".")
+        ? fileName.substring(fileName.lastIndexOf("."))
+        : "";
+      const base = fileName.replace(ext, "");
+      uniqueName = `${base}-${counter}${ext}`;
+      counter++;
+    } catch (err) {
+      // Falls "not_found" → Datei existiert nicht → Namen verwenden
+      if (err?.status === 409) {
+        const reason = err.error?.error;
+        if (reason?.[".tag"] === "path") {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+  }
+  return uniqueName;
+}
+
 // Upload Endpoint
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
@@ -51,7 +82,12 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     const orderNumber = req.body.orderNumber || "unbekannt";
     const originalName = req.file.originalname;
-    const fileName = `${orderNumber}-${originalName}`;
+    const basePath = "/returns";
+
+    // Basisname = Bestellnummer + Originalname
+    let fileName = `${orderNumber}-${originalName}`;
+    fileName = await getUniqueFileName(basePath, fileName);
+
     const filePath = req.file.path;
     const fileContent = fs.readFileSync(filePath);
 
@@ -59,26 +95,26 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     // Datei nach Dropbox hochladen
     await dbx.filesUpload({
-      path: `/returns/${fileName}`,
+      path: `${basePath}/${fileName}`,
       contents: fileContent,
-      mode: { ".tag": "overwrite" }
+      mode: { ".tag": "add" } // add → kein Überschreiben
     });
     fs.unlinkSync(filePath);
 
-    console.log("✅ Datei in Dropbox:", `/returns/${fileName}`);
+    console.log("✅ Datei in Dropbox:", `${basePath}/${fileName}`);
 
     // Freigabelink erstellen oder bestehenden Link holen
     let publicLink;
     try {
       const linkResponse = await dbx.sharingCreateSharedLinkWithSettings({
-        path: `/returns/${fileName}`
+        path: `${basePath}/${fileName}`
       });
       publicLink = linkResponse.result.url.replace("?dl=0", "?dl=1");
       console.log("🔗 Neuer Link erstellt:", publicLink);
     } catch (err) {
       console.warn("⚠️ Link existiert schon, hole bestehenden...");
       const existing = await dbx.sharingListSharedLinks({
-        path: `/returns/${fileName}`,
+        path: `${basePath}/${fileName}`,
         direct_only: true
       });
       if (existing.result.links.length > 0) {
