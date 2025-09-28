@@ -8,14 +8,15 @@ import cors from "cors";
 dotenv.config();
 const app = express();
 
-// 👉 CORS: nur deine Domain erlauben
+// ✅ CORS richtig setzen (gegen CORB geschützt)
 app.use(cors({
   origin: [
     "https://kuechenglueck.ch",
     "https://www.kuechenglueck.ch"
   ],
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  credentials: true
 }));
 
 // Multer Setup (Dateiupload)
@@ -31,6 +32,7 @@ const upload = multer({
   }
 });
 
+// Dropbox Setup
 const dbx = new Dropbox({
   clientId: process.env.DROPBOX_APP_KEY,
   clientSecret: process.env.DROPBOX_APP_SECRET,
@@ -55,7 +57,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     console.log("📂 Upload gestartet:", fileName);
 
-    // Datei nach Dropbox
+    // Datei nach Dropbox hochladen
     await dbx.filesUpload({
       path: `/returns/${fileName}`,
       contents: fileContent,
@@ -65,7 +67,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     console.log("✅ Datei in Dropbox:", `/returns/${fileName}`);
 
-    // Freigabelink erstellen oder vorhandenen Link holen
+    // Freigabelink erstellen oder bestehenden Link holen
     let publicLink;
     try {
       const linkResponse = await dbx.sharingCreateSharedLinkWithSettings({
@@ -87,12 +89,13 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       }
     }
 
-    // Erfolgreiche Antwort
+    // Erfolgreiche Antwort an Frontend
     return res.status(200).json({
       success: true,
       message: "Upload erfolgreich",
       fileLink: publicLink
     });
+
   } catch (err) {
     console.error("❌ Fehler beim Upload:", err.message);
     return res.status(500).json({
@@ -104,8 +107,8 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
 // Root Endpoint (Test)
 app.get("/", (req, res) => {
-  res.send("Server läuft 🚀 mit Dropbox-Upload + CORS");
+  res.send("✅ Server läuft mit Dropbox-Upload + CORS-Schutz");
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server läuft auf Port ${port}`));
+app.listen(port, () => console.log(`🚀 Server läuft auf Port ${port}`));
