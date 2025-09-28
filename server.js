@@ -3,17 +3,13 @@ import multer from "multer";
 import { Dropbox } from "dropbox";
 import dotenv from "dotenv";
 import fs from "fs";
-import cors from "cors";   // NEU
+import cors from "cors";
 
 dotenv.config();
 const app = express();
 
-// 👉 CORS erlauben (Shopify-Domain eintragen)
-app.use(cors({
-  origin: ["https://kuechenglueck.ch", "https://www.kuechenglueck.ch"],
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}));
+// 👉 CORS global erlauben (für Test)
+app.use(cors());
 
 // Multer Setup
 const upload = multer({
@@ -49,7 +45,6 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     console.log("📂 Upload gestartet:", fileName);
 
-    // Datei hochladen
     await dbx.filesUpload({
       path: `/returns/${fileName}`,
       contents: fileContent,
@@ -64,7 +59,6 @@ app.post("/upload", upload.single("file"), async (req, res) => {
         path: `/returns/${fileName}`
       });
       publicLink = linkResponse.result.url.replace("?dl=0", "?dl=1");
-      console.log("🔗 Neuer Link erstellt:", publicLink);
     } catch {
       const existing = await dbx.sharingListSharedLinks({
         path: `/returns/${fileName}`,
@@ -72,7 +66,6 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       });
       if (existing.result.links.length > 0) {
         publicLink = existing.result.links[0].url.replace("?dl=0", "?dl=1");
-        console.log("🔗 Existierender Link gefunden:", publicLink);
       } else {
         throw new Error("Kein Freigabelink verfügbar");
       }
@@ -90,7 +83,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("Server läuft 🚀 mit Dropbox Upload + CORS");
+  res.send("Server läuft 🚀 mit global CORS");
 });
 
 const port = process.env.PORT || 3000;
