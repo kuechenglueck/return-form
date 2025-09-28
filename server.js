@@ -3,10 +3,19 @@ import multer from "multer";
 import { Dropbox } from "dropbox";
 import dotenv from "dotenv";
 import fs from "fs";
+import cors from "cors";   // NEU
 
 dotenv.config();
 const app = express();
 
+// 👉 CORS erlauben (Shopify-Domain eintragen)
+app.use(cors({
+  origin: ["https://kuechenglueck.ch", "https://www.kuechenglueck.ch"],
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}));
+
+// Multer Setup
 const upload = multer({
   dest: "uploads/",
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -25,11 +34,11 @@ const dbx = new Dropbox({
   refreshToken: process.env.DROPBOX_REFRESH_TOKEN
 });
 
+// Upload Endpoint
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
-      console.error("❌ Keine Datei empfangen");
-      return res.status(400).json({ success: false, step: "file-check", error: "Keine Datei hochgeladen" });
+      return res.status(400).json({ success: false, error: "Keine Datei hochgeladen" });
     }
 
     const orderNumber = req.body.orderNumber || "unbekannt";
@@ -40,15 +49,14 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     console.log("📂 Upload gestartet:", fileName);
 
-    // Upload
-    const uploadResult = await dbx.filesUpload({
+    // Datei hochladen
+    await dbx.filesUpload({
       path: `/returns/${fileName}`,
       contents: fileContent,
       mode: { ".tag": "overwrite" }
     });
-
     fs.unlinkSync(filePath);
-    console.log("✅ Datei in Dropbox:", uploadResult.result.path_display);
+    console.log("✅ Datei in Dropbox:", `/returns/${fileName}`);
 
     let publicLink;
     try {
@@ -57,8 +65,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       });
       publicLink = linkResponse.result.url.replace("?dl=0", "?dl=1");
       console.log("🔗 Neuer Link erstellt:", publicLink);
-    } catch (err) {
-      console.warn("⚠️ Neuer Link konnte nicht erstellt werden, versuche bestehenden zu holen...");
+    } catch {
       const existing = await dbx.sharingListSharedLinks({
         path: `/returns/${fileName}`,
         direct_only: true
@@ -71,24 +78,19 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       }
     }
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      step: "done",
       message: "Upload erfolgreich",
       fileLink: publicLink
     });
   } catch (err) {
     console.error("❌ Fehler beim Upload:", err.message);
-    return res.status(500).json({
-      success: false,
-      step: "catch",
-      error: err.message
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
 app.get("/", (req, res) => {
-  res.send("Server läuft 🚀 Debug-Version mit Logging");
+  res.send("Server läuft 🚀 mit Dropbox Upload + CORS");
 });
 
 const port = process.env.PORT || 3000;
