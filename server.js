@@ -8,7 +8,12 @@ dotenv.config();
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-const dbx = new Dropbox({ accessToken: process.env.DROPBOX_TOKEN });
+// 🔹 Hier holen wir die Tokens/Keys aus den Environment Variables
+const dbx = new Dropbox({
+  clientId: process.env.DROPBOX_APP_KEY,
+  clientSecret: process.env.DROPBOX_APP_SECRET,
+  refreshToken: process.env.DROPBOX_REFRESH_TOKEN
+});
 
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
@@ -22,7 +27,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     });
 
     fs.unlinkSync(filePath);
-    res.json({ message: "Upload erfolgreich!" });
+    res.json({ message: "Upload erfolgreich mit Refresh Token!" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Upload fehlgeschlagen" });
@@ -30,7 +35,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("Server läuft 🚀");
+  res.send("Server läuft 🚀 (mit Refresh Token)");
 });
 
 const port = process.env.PORT || 3000;
