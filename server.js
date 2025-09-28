@@ -7,10 +7,9 @@ import fs from "fs";
 dotenv.config();
 const app = express();
 
-// Multer Konfiguration: max. 10 MB pro Datei
 const upload = multer({
   dest: "uploads/",
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // max 10 MB
   fileFilter: (req, file, cb) => {
     const allowed = ["image/jpeg", "image/png", "image/heic"];
     if (!allowed.includes(file.mimetype)) {
@@ -20,7 +19,6 @@ const upload = multer({
   }
 });
 
-// Dropbox Client mit Refresh Token
 const dbx = new Dropbox({
   clientId: process.env.DROPBOX_APP_KEY,
   clientSecret: process.env.DROPBOX_APP_SECRET,
@@ -34,32 +32,42 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       return res.status(400).json({ success: false, error: "Keine Datei hochgeladen" });
     }
 
+    const orderNumber = req.body.orderNumber || "unbekannt";
+    const originalName = req.file.originalname;
+    const fileName = `${orderNumber}-${originalName}`;
     const filePath = req.file.path;
-    const fileName = req.file.originalname;
     const fileContent = fs.readFileSync(filePath);
 
-    // Datei nach Dropbox in /returns hochladen
+    // Datei nach Dropbox hochladen
     await dbx.filesUpload({
       path: `/returns/${fileName}`,
       contents: fileContent,
       mode: { ".tag": "add" }
     });
 
-    fs.unlinkSync(filePath); // lokale Datei löschen
+    fs.unlinkSync(filePath);
 
-    // Erfolgsantwort für das Frontend
-    res.status(200).json({ success: true, message: "Upload erfolgreich" });
+    // Freigabelink erzeugen
+    const linkResponse = await dbx.sharingCreateSharedLinkWithSettings({
+      path: `/returns/${fileName}`
+    });
+
+    const publicLink = linkResponse.result.url.replace("?dl=0", "?dl=1");
+
+    res.status(200).json({
+      success: true,
+      message: "Upload erfolgreich",
+      fileLink: publicLink
+    });
   } catch (err) {
     console.error("Upload Fehler:", err.message);
     res.status(500).json({ success: false, error: "Upload fehlgeschlagen" });
   }
 });
 
-// Root Endpoint
 app.get("/", (req, res) => {
-  res.send("Server läuft 🚀 (mit Dropbox Upload + Refresh Token)");
+  res.send("Server läuft 🚀 mit Dropbox Upload, Bestellnummer im Dateinamen und Link-Erstellung");
 });
 
-// Server starten
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Server läuft auf Port ${port}`));
