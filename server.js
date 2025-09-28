@@ -7,11 +7,12 @@ import fs from "fs";
 dotenv.config();
 const app = express();
 
+// --- Multer Setup (max 10 MB, Dateitypen prüfen) ---
 const upload = multer({
   dest: "uploads/",
-  limits: { fileSize: 10 * 1024 * 1024 }, // max 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   fileFilter: (req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png", "image/heic"];
+    const allowed = ["image/jpeg", "image/png", "image/heic", "image/heif"];
     if (!allowed.includes(file.mimetype)) {
       return cb(new Error("Ungültiger Dateityp"));
     }
@@ -25,7 +26,7 @@ const dbx = new Dropbox({
   refreshToken: process.env.DROPBOX_REFRESH_TOKEN
 });
 
-// Upload Endpoint
+// --- Upload Endpoint ---
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
@@ -42,18 +43,33 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     await dbx.filesUpload({
       path: `/returns/${fileName}`,
       contents: fileContent,
-      mode: { ".tag": "add" }
+      mode: { ".tag": "overwrite" } // überschreibt falls gleicher Name
     });
 
     fs.unlinkSync(filePath);
 
-    // Freigabelink erzeugen
-    const linkResponse = await dbx.sharingCreateSharedLinkWithSettings({
-      path: `/returns/${fileName}`
-    });
+    let publicLink;
 
-    const publicLink = linkResponse.result.url.replace("?dl=0", "?dl=1");
+    try {
+      // Versuch: neuen Link erstellen
+      const linkResponse = await dbx.sharingCreateSharedLinkWithSettings({
+        path: `/returns/${fileName}`
+      });
+      publicLink = linkResponse.result.url.replace("?dl=0", "?dl=1");
+    } catch (err) {
+      // Falls Link schon existiert → vorhandenen Link holen
+      const existing = await dbx.sharingListSharedLinks({
+        path: `/returns/${fileName}`,
+        direct_only: true
+      });
+      if (existing.result.links.length > 0) {
+        publicLink = existing.result.links[0].url.replace("?dl=0", "?dl=1");
+      } else {
+        throw new Error("Kein Freigabelink verfügbar");
+      }
+    }
 
+    // Erfolgreiche Antwort
     res.status(200).json({
       success: true,
       message: "Upload erfolgreich",
@@ -61,12 +77,13 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     });
   } catch (err) {
     console.error("Upload Fehler:", err.message);
-    res.status(500).json({ success: false, error: "Upload fehlgeschlagen" });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// --- Test Route ---
 app.get("/", (req, res) => {
-  res.send("Server läuft 🚀 mit Dropbox Upload, Bestellnummer im Dateinamen und Link-Erstellung");
+  res.send("Server läuft 🚀 mit Dropbox Upload + Link-Erstellung");
 });
 
 const port = process.env.PORT || 3000;
